@@ -131,25 +131,39 @@ async function searchMultipleMarketplaces(query, token, categoryId) {
   return results.flat();
 }
 
-// Country -> currency mapping for common markets. Falls back to USD for anything
-// not listed, which covers most of the world reasonably (many countries either
-// use USD directly or it's a familiar reference currency).
-const COUNTRY_CURRENCY = {
-  ZA: 'ZAR', US: 'USD', GB: 'GBP', IE: 'EUR',
-  DE: 'EUR', FR: 'EUR', ES: 'EUR', IT: 'EUR', NL: 'EUR', PT: 'EUR', BE: 'EUR', AT: 'EUR', FI: 'EUR', GR: 'EUR',
-  CA: 'CAD', AU: 'AUD', NZ: 'NZD', JP: 'JPY', CN: 'CNY', IN: 'INR',
-  BR: 'BRL', MX: 'MXN', AR: 'ARS', CH: 'CHF', SE: 'SEK', NO: 'NOK', DK: 'DKK',
-  KE: 'KES', NG: 'NGN', GH: 'GHS', EG: 'EGP', MA: 'MAD',
-  AE: 'AED', SA: 'SAR', IL: 'ILS', TR: 'TRY',
-  SG: 'SGD', HK: 'HKD', KR: 'KRW', TH: 'THB', MY: 'MYR', PH: 'PHP', ID: 'IDR', VN: 'VND',
-  PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON'
+// Country -> currency + readable name for common markets. Falls back to USD
+// for anything not listed. The name is used in the AI-search fallback prompt below.
+const COUNTRY_INFO = {
+  ZA: { currency: 'ZAR', name: 'South Africa' }, US: { currency: 'USD', name: 'United States' },
+  GB: { currency: 'GBP', name: 'United Kingdom' }, IE: { currency: 'EUR', name: 'Ireland' },
+  DE: { currency: 'EUR', name: 'Germany' }, FR: { currency: 'EUR', name: 'France' },
+  ES: { currency: 'EUR', name: 'Spain' }, IT: { currency: 'EUR', name: 'Italy' },
+  NL: { currency: 'EUR', name: 'Netherlands' }, PT: { currency: 'EUR', name: 'Portugal' },
+  BE: { currency: 'EUR', name: 'Belgium' }, AT: { currency: 'EUR', name: 'Austria' },
+  FI: { currency: 'EUR', name: 'Finland' }, GR: { currency: 'EUR', name: 'Greece' },
+  CA: { currency: 'CAD', name: 'Canada' }, AU: { currency: 'AUD', name: 'Australia' },
+  NZ: { currency: 'NZD', name: 'New Zealand' }, JP: { currency: 'JPY', name: 'Japan' },
+  CN: { currency: 'CNY', name: 'China' }, IN: { currency: 'INR', name: 'India' },
+  BR: { currency: 'BRL', name: 'Brazil' }, MX: { currency: 'MXN', name: 'Mexico' },
+  AR: { currency: 'ARS', name: 'Argentina' }, CH: { currency: 'CHF', name: 'Switzerland' },
+  SE: { currency: 'SEK', name: 'Sweden' }, NO: { currency: 'NOK', name: 'Norway' },
+  DK: { currency: 'DKK', name: 'Denmark' }, KE: { currency: 'KES', name: 'Kenya' },
+  NG: { currency: 'NGN', name: 'Nigeria' }, GH: { currency: 'GHS', name: 'Ghana' },
+  EG: { currency: 'EGP', name: 'Egypt' }, MA: { currency: 'MAD', name: 'Morocco' },
+  AE: { currency: 'AED', name: 'United Arab Emirates' }, SA: { currency: 'SAR', name: 'Saudi Arabia' },
+  IL: { currency: 'ILS', name: 'Israel' }, TR: { currency: 'TRY', name: 'Turkey' },
+  SG: { currency: 'SGD', name: 'Singapore' }, HK: { currency: 'HKD', name: 'Hong Kong' },
+  KR: { currency: 'KRW', name: 'South Korea' }, TH: { currency: 'THB', name: 'Thailand' },
+  MY: { currency: 'MYR', name: 'Malaysia' }, PH: { currency: 'PHP', name: 'Philippines' },
+  ID: { currency: 'IDR', name: 'Indonesia' }, VN: { currency: 'VND', name: 'Vietnam' },
+  PL: { currency: 'PLN', name: 'Poland' }, CZ: { currency: 'CZK', name: 'Czechia' },
+  HU: { currency: 'HUF', name: 'Hungary' }, RO: { currency: 'RON', name: 'Romania' }
 };
 
-function getCurrencyForRequest(req) {
-  // Vercel automatically attaches geolocation headers based on the visitor's IP —
-  // no extra API call or client-side detection needed.
+function getRequestGeo(req) {
   const country = req.headers['x-vercel-ip-country'];
-  return COUNTRY_CURRENCY[country] || 'USD';
+  const info = COUNTRY_INFO[country];
+  return info || { currency: 'USD', name: 'United States' };
 }
 
 let rateCache = {}; // keyed by "FROM_TO", each with { rate, expiry }
@@ -177,6 +191,114 @@ async function getExchangeRate(fromCurrency, toCurrency) {
     console.error(`Exchange rate fetch failed for ${fromCurrency}->${toCurrency}:`, err.message);
     return null; // caller decides how to handle a missing rate
   }
+}
+
+// Currency symbols/prefixes used to spot prices inside raw search text.
+// Falls back to matching the plain ISO code (e.g. "NGN 50,000") for currencies
+// without a clean ASCII symbol.
+const CURRENCY_SYMBOL = {
+  ZAR: 'R', USD: '\\$', GBP: '£', EUR: '€', INR: '₹', JPY: '¥', CNY: '¥',
+  NGN: '₦', KES: 'KSh', GHS: 'GH₵', AUD: 'A\\$', CAD: 'C\\$', NZD: 'NZ\\$',
+  BRL: 'R\\$', MXN: 'MX\\$', SGD: 'S\\$', HKD: 'HK\\$', KRW: '₩', THB: '฿',
+  TRY: '₺', PLN: 'zł'
+};
+
+function extractPrices(text, currency) {
+  if (!text) return [];
+  const symbol = CURRENCY_SYMBOL[currency] || currency;
+  // Matches "R1,234" / "R 1234.50" style, OR "1,234 ZAR" style — covers most
+  // real-world price formatting without needing per-site custom parsing.
+  const pattern = new RegExp(
+    `(?:${symbol}\\s?([\\d][\\d,]*(?:\\.\\d+)?))|(?:([\\d][\\d,]*(?:\\.\\d+)?)\\s?${currency})`,
+    'gi'
+  );
+  const matches = [...text.matchAll(pattern)];
+  return matches
+    .map(m => parseFloat((m[1] || m[2] || '').replace(/,/g, '')))
+    .filter(n => !isNaN(n) && n > 10); // filters stray small numbers (specs, ratings, etc.)
+}
+
+// eBay only really has US and UK marketplaces — for every other country, eBay's
+// prices reflect demand in a market the seller isn't even selling into. This
+// fallback uses Tavily (a search API, not an LLM) to pull real local pages,
+// then extracts prices from the raw text ourselves — no per-request AI cost,
+// works within Tavily's free tier (1,000 searches/month, no card required).
+async function getLocalMarketAppraisal(item, condition, currency, countryName) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) {
+    throw new Error('TAVILY_API_KEY not configured on the server yet');
+  }
+
+  const wantsNew = /mint|sealed|brand new|excellent/i.test(condition);
+  const query = `${item} price ${countryName} ${wantsNew ? 'new' : 'used'}`;
+
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query,
+      search_depth: 'advanced',
+      include_answer: true,
+      max_results: 6
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Tavily search failed (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  const comps = [];
+  let allPrices = [];
+
+  if (data.answer) {
+    allPrices.push(...extractPrices(data.answer, currency));
+  }
+
+  for (const r of (data.results || [])) {
+    const prices = extractPrices(r.content || r.title || '', currency);
+    if (prices.length > 0 && comps.length < 3) {
+      let hostname = r.url;
+      try { hostname = new URL(r.url).hostname.replace('www.', ''); } catch {}
+      comps.push({ source: hostname, price: money(prices[0], currency) });
+    }
+    allPrices.push(...prices);
+  }
+
+  if (!allPrices.length) {
+    return {
+      low: 0,
+      high: 0,
+      best_guess: 0,
+      currency,
+      lowConfidence: true,
+      reasoning: `No local pricing found for ${countryName} via web search.${data.answer ? ' ' + data.answer.slice(0, 200) : ''}`,
+      comps: []
+    };
+  }
+
+  const sorted = allPrices.sort((a, b) => a - b);
+  const med = median(sorted);
+  const usable = sorted.filter(p => p >= med * 0.4 && p <= med * 2.5);
+  const prices = usable.length >= 2 ? usable : sorted;
+  const multiplier = CONDITION_MULTIPLIER[condition] ?? 0.85;
+
+  const low = prices[0];
+  const high = prices[prices.length - 1];
+  const avg = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+  const lowConfidence = prices.length < 3;
+
+  return {
+    low: Math.round(low * multiplier),
+    high: Math.round(high * multiplier),
+    best_guess: Math.round(avg * multiplier),
+    currency,
+    lowConfidence,
+    reasoning: `Based on ${prices.length} local price${prices.length === 1 ? '' : 's'} found via web search for ${countryName}, adjusted for "${condition}" condition.${data.answer ? ' ' + data.answer.slice(0, 200) : ''}`,
+    comps
+  };
 }
 
 const CONDITION_MULTIPLIER = {
@@ -290,7 +412,24 @@ export default async function handler(req, res) {
     return;
   }
 
+  const { currency, name: countryName } = getRequestGeo(req);
+
   try {
+    // eBay only meaningfully covers US/UK — everywhere else, use local-market
+    // AI search instead, since eBay's numbers there would be systematically wrong,
+    // not just noisy.
+    if (currency !== 'USD' && currency !== 'GBP') {
+      try {
+        const result = await getLocalMarketAppraisal(item, condition, currency, countryName);
+        res.status(200).json(result);
+        return;
+      } catch (err) {
+        console.error(`Local market appraisal failed, falling back to eBay US/UK data:`, err.message);
+        // Fall through to eBay below — worse data is better than a broken app,
+        // but we mark it low-confidence since eBay isn't a good proxy here.
+      }
+    }
+
     const token = await getEbayToken();
     const categoryId = await getBestCategory(item, token);
     let listings = await searchMultipleMarketplaces(item, token, categoryId);
@@ -300,8 +439,15 @@ export default async function handler(req, res) {
       listings = await searchMultipleMarketplaces(item, token, null);
     }
 
-    const currency = getCurrencyForRequest(req);
     const result = await computeValuation(listings, condition, currency);
+
+    // If we fell through from a failed local-market attempt, be explicit that
+    // this is a weaker proxy than usual.
+    if (currency !== 'USD' && currency !== 'GBP') {
+      result.lowConfidence = true;
+      result.reasoning = `${result.reasoning} Note: based on US/UK eBay pricing, not local ${countryName} market data — treat as a rough reference only.`;
+    }
+
     res.status(200).json(result);
   } catch (err) {
     console.error(err);
