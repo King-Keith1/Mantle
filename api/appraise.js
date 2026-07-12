@@ -38,12 +38,38 @@ async function getEbayToken() {
   return cachedToken;
 }
 
-async function searchEbay(query, token) {
+async function getBestCategory(query, token) {
+  // Ask eBay's own taxonomy what category this query belongs to, so we can
+  // restrict the search to it. This is what actually keeps "iPhone case"
+  // and "Galaxy S26 Ultra screen protector" out of a phone search — they
+  // live in a different category on eBay's backend, not just different words.
+  try {
+    const url = `https://api.ebay.com/commerce/taxonomy/v1/category_tree/0/get_category_suggestions?q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const top = data.categorySuggestions?.[0];
+    return top?.category?.categoryId || null;
+  } catch (err) {
+    console.error('Category lookup failed, continuing without it:', err.message);
+    return null; // non-fatal — we fall back to an unfiltered search below
+  }
+}
+
+async function searchEbay(query, token, categoryId) {
   // No price sort here on purpose — sorting cheapest-first pulls in cases, screen
   // protectors, and "for parts" junk before any real listings. Default relevance
   // ranking weighs title match instead, which is what we actually want.
   const cleanedQuery = `${query} -case -cover -skin -decal -"screen protector" -parts -"for parts" -lot -replacement -sticker`;
-  const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(cleanedQuery)}&limit=30`;
+  let url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(cleanedQuery)}&limit=30`;
+
+  if (categoryId) {
+    url += `&category_ids=${categoryId}`;
+  }
 
   const response = await fetch(url, {
     headers: {
@@ -149,7 +175,14 @@ export default async function handler(req, res) {
 
   try {
     const token = await getEbayToken();
-    const listings = await searchEbay(item, token);
+    const categoryId = await getBestCategory(item, token);
+    let listings = await searchEbay(item, token, categoryId);
+
+    // If the category guess was wrong or too narrow and returned nothing, retry unfiltered
+    if (listings.length === 0 && categoryId) {
+      listings = await searchEbay(item, token, null);
+    }
+
     const result = computeValuation(listings, condition);
     res.status(200).json(result);
   } catch (err) {
