@@ -271,14 +271,17 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
 
   const answerPrices = extractPrices(data.answer, currency);
 
-  const comps = [];
+  // Collect each result's first extracted price alongside its source, but
+  // don't decide which to DISPLAY as comps yet — that depends on the anchor,
+  // which we don't have until after this loop.
+  const resultCandidates = [];
   let resultPrices = [];
   for (const r of (data.results || [])) {
     const prices = extractPrices(r.content || r.title || '', currency);
-    if (prices.length > 0 && comps.length < 3) {
+    if (prices.length > 0) {
       let hostname = r.url;
       try { hostname = new URL(r.url).hostname.replace('www.', ''); } catch {}
-      comps.push({ source: hostname, price: money(prices[0], currency) });
+      resultCandidates.push({ source: hostname, price: prices[0] });
     }
     resultPrices.push(...prices);
   }
@@ -291,6 +294,14 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
     const anchor = median(answerPrices.slice().sort((a, b) => a - b));
     const nearby = resultPrices.filter(p => p >= anchor * 0.6 && p <= anchor * 1.6);
     const usable = [anchor, ...nearby];
+
+    // Only show comps whose price actually informed the estimate — showing a
+    // "comparable sale" that got excluded as noise would contradict the number
+    // right above it.
+    const comps = resultCandidates
+      .filter(c => c.price >= anchor * 0.6 && c.price <= anchor * 1.6)
+      .slice(0, 3)
+      .map(c => ({ source: c.source, price: money(c.price, currency) }));
 
     const low = Math.min(...usable);
     const high = Math.max(...usable);
@@ -331,6 +342,11 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
   const avg = prices.reduce((sum, p) => sum + p, 0) / prices.length;
   const lowConfidence = prices.length < 3;
 
+  const fallbackComps = resultCandidates
+    .filter(c => c.price >= med * 0.4 && c.price <= med * 2.5)
+    .slice(0, 3)
+    .map(c => ({ source: c.source, price: money(c.price, currency) }));
+
   return {
     low: Math.round(low * multiplier),
     high: Math.round(high * multiplier),
@@ -338,7 +354,7 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
     currency,
     lowConfidence,
     reasoning: `Based on ${prices.length} local price${prices.length === 1 ? '' : 's'} found via web search for ${countryName}, adjusted for "${condition}" condition.${data.answer ? ' ' + data.answer.slice(0, 200) : ''}`,
-    comps
+    comps: fallbackComps
   };
 }
 
