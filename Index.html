@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worth — What's it actually worth?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Appraisal Demo · Prototype</div>
+  <h1>What's it <em>actually</em> worth?</h1>
+  <p class="sub">Describe what you've got. We'll research live comps and stamp a value — no listing, no account, just the number.</p>
+
+  <div class="ticket">
+    <div class="ticket-top">
+      <div class="ticket-label">
+        <span>№ 00142</span>
+        <span id="dateTag"></span>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Item</label>
+        <input type="text" id="itemName" placeholder="e.g. Labubu Big Into Energy blind box, sealed" />
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label class="field-label">Age</label>
+          <select id="itemAge">
+            <option value="Brand new / current release">Brand new</option>
+            <option value="Less than 1 year old">&lt; 1 year</option>
+            <option value="1-3 years old">1–3 years</option>
+            <option value="3-10 years old">3–10 years</option>
+            <option value="Over 10 years old / vintage">10+ years</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Category</label>
+          <select id="itemCategory">
+            <option value="collectable / designer toy">Collectable / toy</option>
+            <option value="sneaker">Sneaker</option>
+            <option value="trading card">Trading card</option>
+            <option value="watch">Watch</option>
+            <option value="electronics">Electronics</option>
+            <option value="general item">Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:0;">
+        <label class="field-label">Condition</label>
+        <div class="condition-scale">
+          <button class="cond-btn active" data-cond="Mint / sealed, never used">Mint</button>
+          <button class="cond-btn" data-cond="Excellent, barely used">Excellent</button>
+          <button class="cond-btn" data-cond="Good, some visible wear">Good</button>
+          <button class="cond-btn" data-cond="Worn / damaged">Worn</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ticket-bottom">
+      <button class="appraise-btn" id="appraiseBtn">
+        <span class="spinner" id="spinner"></span>
+        <span id="btnText">Get appraisal</span>
+      </button>
+      <div class="error-box" id="errorBox"></div>
+    </div>
+
+    <div class="result" id="resultBox">
+      <div class="result-label">Estimated market value</div>
+      <div class="value-stamp" id="valueStamp">$—</div>
+      <div class="value-range" id="valueRange"></div>
+      <div class="reasoning" id="reasoning"></div>
+      <div id="compsSection" style="display:none;">
+        <div class="comps-title">Comparable sales found</div>
+        <div id="compsList"></div>
+      </div>
+      <div class="disclaimer">This estimate is based on current eBay listing prices for similar items, not confirmed sold prices — not a guaranteed sale value. Actual resale value depends on buyer demand, timing, and platform fees.</div>
+
+      <button class="save-btn" id="saveBtn">Save to Vault</button>
+    </div>
+  </div>
+
+  <div class="footer-note">Prototype · valuation powered by live eBay listings</div>
+
+  <div class="vault-section">
+    <div class="vault-header">
+      <div class="vault-eyebrow">Your Vault · Private</div>
+    </div>
+
+    <div class="vault-card">
+      <div class="vault-total-row">
+        <div>
+          <div class="vault-total-label">Estimated collection value</div>
+          <div class="vault-total-value" id="vaultTotal">$0</div>
+        </div>
+        <div class="vault-count">
+          <div class="vault-count-num" id="vaultCount">0</div>
+          <div class="vault-count-label">Items</div>
+        </div>
+      </div>
+
+      <div class="vault-categories" id="vaultCategories" style="display:none;"></div>
+
+      <div class="vault-items" id="vaultItems">
+        <div class="vault-empty" id="vaultEmpty">Nothing in your Vault yet.<br>Get an appraisal above, then save it — this is where your collection adds up.</div>
+      </div>
+    </div>
+
+    <div class="vault-note">Stored only in this browser tab for this demo — refreshing clears it.<br>In the real app this would be private to you by default, never public.</div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
