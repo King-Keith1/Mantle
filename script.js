@@ -67,9 +67,15 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   }
 
   let currentAppraisal = null; // holds the last appraisal result + inputs, ready to save
+  let sessionCurrency = 'USD'; // set from the first appraisal response, reused for Vault totals
+
+  function money(n, currency) {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
+  }
 
   function renderResult(r) {
-    const fmt = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+    sessionCurrency = r.currency || 'USD';
+    const fmt = n => money(n, sessionCurrency);
 
     document.getElementById('valueStamp').textContent = fmt(r.best_guess);
     document.getElementById('valueRange').textContent = `Range: ${fmt(r.low)} – ${fmt(r.high)}`;
@@ -109,7 +115,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
 
   function renderVault() {
     const total = vault.reduce((sum, v) => sum + v.value, 0);
-    document.getElementById('vaultTotal').textContent = '$' + total.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    document.getElementById('vaultTotal').textContent = money(total, sessionCurrency);
     document.getElementById('vaultCount').textContent = vault.length;
 
     const catsWrap = document.getElementById('vaultCategories');
@@ -128,7 +134,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
 
     catsWrap.style.display = 'flex';
     catsWrap.innerHTML = topCats.map(([cat, val]) =>
-      `<span class="cat-chip">${cat} <b>$${val.toLocaleString('en-US', {maximumFractionDigits:0})}</b></span>`
+      `<span class="cat-chip">${cat} <b>${money(val, sessionCurrency)}</b></span>`
     ).join('');
 
     // item list, most recent first
@@ -138,7 +144,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
           <div class="vault-item-name">${v.name}</div>
           <div class="vault-item-meta">${v.category}</div>
         </div>
-        <div class="vault-item-price">$${v.value.toLocaleString('en-US', {maximumFractionDigits:0})}</div>
+        <div class="vault-item-price">${money(v.value, sessionCurrency)}</div>
       </div>
     `).join('');
   }

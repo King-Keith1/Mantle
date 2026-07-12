@@ -87,6 +87,55 @@ async function searchEbay(query, token, categoryId) {
   return data.itemSummaries || [];
 }
 
+// Country -> currency mapping for common markets. Falls back to USD for anything
+// not listed, which covers most of the world reasonably (many countries either
+// use USD directly or it's a familiar reference currency).
+const COUNTRY_CURRENCY = {
+  ZA: 'ZAR', US: 'USD', GB: 'GBP', IE: 'EUR',
+  DE: 'EUR', FR: 'EUR', ES: 'EUR', IT: 'EUR', NL: 'EUR', PT: 'EUR', BE: 'EUR', AT: 'EUR', FI: 'EUR', GR: 'EUR',
+  CA: 'CAD', AU: 'AUD', NZ: 'NZD', JP: 'JPY', CN: 'CNY', IN: 'INR',
+  BR: 'BRL', MX: 'MXN', AR: 'ARS', CH: 'CHF', SE: 'SEK', NO: 'NOK', DK: 'DKK',
+  KE: 'KES', NG: 'NGN', GH: 'GHS', EG: 'EGP', MA: 'MAD',
+  AE: 'AED', SA: 'SAR', IL: 'ILS', TR: 'TRY',
+  SG: 'SGD', HK: 'HKD', KR: 'KRW', TH: 'THB', MY: 'MYR', PH: 'PHP', ID: 'IDR', VN: 'VND',
+  PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON'
+};
+
+function getCurrencyForRequest(req) {
+  // Vercel automatically attaches geolocation headers based on the visitor's IP —
+  // no extra API call or client-side detection needed.
+  const country = req.headers['x-vercel-ip-country'];
+  return COUNTRY_CURRENCY[country] || 'USD';
+}
+
+let rateCache = {}; // keyed by currency code, each with { rate, expiry }
+
+async function getUsdToRate(currency) {
+  if (currency === 'USD') return 1;
+
+  const cached = rateCache[currency];
+  if (cached && Date.now() < cached.expiry) {
+    return cached.rate;
+  }
+
+  try {
+    const response = await fetch(`https://api.frankfurter.dev/v1/latest?base=USD&symbols=${currency}`);
+    if (!response.ok) throw new Error(`Rate fetch failed: ${response.status}`);
+
+    const data = await response.json();
+    const rate = data.rates?.[currency];
+    if (!rate) throw new Error(`${currency} rate missing from response`);
+
+    rateCache[currency] = { rate, expiry: Date.now() + 12 * 60 * 60 * 1000 }; // 12 hours
+    return rate;
+  } catch (err) {
+    console.error(`Exchange rate fetch failed for ${currency}, falling back to USD 1:1:`, err.message);
+    // If we can't get a real rate, showing USD-equivalent numbers is more honest
+    // than a stale/wrong conversion.
+    return 1;
+  }
+}
+
 const CONDITION_MULTIPLIER = {
   'Mint / sealed, never used': 1.0,
   'Excellent, barely used': 0.9,
@@ -101,14 +150,16 @@ function median(sortedArr) {
     : (sortedArr[mid - 1] + sortedArr[mid]) / 2;
 }
 
-function computeValuation(listings, condition) {
+function computeValuation(listings, condition, rate, currency) {
   const multiplier = CONDITION_MULTIPLIER[condition] ?? 0.85;
+  const money = (n) => new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
 
   if (!listings.length) {
     return {
       low: 0,
       high: 0,
       best_guess: 0,
+      currency,
       reasoning: "No comparable listings found on eBay for this item right now. Try a more specific or more common name for it.",
       comps: []
     };
@@ -124,6 +175,7 @@ function computeValuation(listings, condition) {
       low: 0,
       high: 0,
       best_guess: 0,
+      currency,
       reasoning: "Found listings but couldn't read pricing from them.",
       comps: []
     };
@@ -148,14 +200,15 @@ function computeValuation(listings, condition) {
     .slice(0, 3)
     .map(l => ({
       source: `eBay listing — ${l.condition || 'condition unspecified'}`,
-      price: `$${parseFloat(l.price?.value).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+      price: money(parseFloat(l.price?.value) * rate)
     }));
 
   return {
-    low: Math.round(low * multiplier),
-    high: Math.round(high * multiplier),
-    best_guess: Math.round(avg * multiplier),
-    reasoning: `Based on ${prices.length} comparable eBay listings (of ${listings.length} found) for similar items, adjusted for "${condition}" condition. These reflect current asking prices, not confirmed sold prices.`,
+    low: Math.round(low * multiplier * rate),
+    high: Math.round(high * multiplier * rate),
+    best_guess: Math.round(avg * multiplier * rate),
+    currency,
+    reasoning: `Based on ${prices.length} comparable eBay listings (of ${listings.length} found) for similar items, adjusted for "${condition}" condition. These reflect current asking prices, not confirmed sold prices${currency !== 'USD' ? `, converted from USD to ${currency}` : ''}.`,
     comps
   };
 }
@@ -183,7 +236,9 @@ export default async function handler(req, res) {
       listings = await searchEbay(item, token, null);
     }
 
-    const result = computeValuation(listings, condition);
+    const currency = getCurrencyForRequest(req);
+    const rate = await getUsdToRate(currency);
+    const result = computeValuation(listings, condition, rate, currency);
     res.status(200).json(result);
   } catch (err) {
     console.error(err);
