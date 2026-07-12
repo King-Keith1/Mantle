@@ -245,6 +245,11 @@
     margin-bottom: 10px;
   }
 
+  .low-confidence-badge {
+    color: var(--coral);
+    font-weight: 600;
+  }
+
   .value-stamp {
     font-family: 'Fraunces', serif;
     font-weight: 700;
@@ -477,4 +482,25 @@
     margin-top: 16px;
     font-family: 'IBM Plex Mono', monospace;
     line-height: 1.6;
+  }
+
+  /* --- MOBILE --- */
+  @media (max-width: 480px) {
+    body { padding: 32px 14px 60px; }
+
+    .row2 {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    input[type="text"], select {
+      font-size: 16px;
+    }
+
+    .value-stamp { font-size: clamp(32px, 12vw, 44px); }
+
+    .ticket-top, .ticket-bottom, .result, .vault-card {
+      padding-left: 22px;
+      padding-right: 22px;
+    }
   }

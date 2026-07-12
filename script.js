@@ -69,8 +69,19 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   let currentAppraisal = null; // holds the last appraisal result + inputs, ready to save
   let sessionCurrency = 'USD'; // set from the first appraisal response, reused for Vault totals
 
+  const CURRENCY_LOCALE = {
+    ZAR: 'en-ZA', USD: 'en-US', GBP: 'en-GB', EUR: 'de-DE',
+    CAD: 'en-CA', AUD: 'en-AU', NZD: 'en-NZ', JPY: 'ja-JP', CNY: 'zh-CN', INR: 'en-IN',
+    BRL: 'pt-BR', MXN: 'es-MX', ARS: 'es-AR', CHF: 'de-CH', SEK: 'sv-SE', NOK: 'nb-NO', DKK: 'da-DK',
+    KES: 'en-KE', NGN: 'en-NG', GHS: 'en-GH', EGP: 'ar-EG', MAD: 'ar-MA',
+    AED: 'ar-AE', SAR: 'ar-SA', ILS: 'he-IL', TRY: 'tr-TR',
+    SGD: 'en-SG', HKD: 'en-HK', KRW: 'ko-KR', THB: 'th-TH', MYR: 'ms-MY', PHP: 'en-PH', IDR: 'id-ID', VND: 'vi-VN',
+    PLN: 'pl-PL', CZK: 'cs-CZ', HUF: 'hu-HU', RON: 'ro-RO'
+  };
+
   function money(n, currency) {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
+    const locale = CURRENCY_LOCALE[currency] || 'en-US';
+    return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
   }
 
   function renderResult(r) {
@@ -80,6 +91,16 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
     document.getElementById('valueStamp').textContent = fmt(r.best_guess);
     document.getElementById('valueRange').textContent = `Range: ${fmt(r.low)} – ${fmt(r.high)}`;
     document.getElementById('reasoning').textContent = r.reasoning || '';
+
+    const resultLabel = document.querySelector('.result-label');
+    const existingBadge = resultLabel.querySelector('.low-confidence-badge');
+    if (existingBadge) existingBadge.remove();
+    if (r.lowConfidence) {
+      const badge = document.createElement('span');
+      badge.className = 'low-confidence-badge';
+      badge.textContent = ' · Low confidence';
+      resultLabel.appendChild(badge);
+    }
 
     const compsSection = document.getElementById('compsSection');
     const compsList = document.getElementById('compsList');
