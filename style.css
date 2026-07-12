@@ -298,6 +298,14 @@
   .comp-source { color: rgba(27,27,24,0.55); flex: 1; }
   .comp-price { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
 
+  .comp-empty-note {
+    font-size: 13px;
+    line-height: 1.6;
+    color: rgba(27,27,24,0.5);
+    font-style: italic;
+    padding: 4px 0;
+  }
+
   .disclaimer {
     margin-top: 22px;
     font-size: 11.5px;
