@@ -203,6 +203,12 @@ const CURRENCY_SYMBOL = {
   TRY: '₺', PLN: 'zł'
 };
 
+// Retail pages often show a monthly financing figure (e.g. "R400 p/m" via
+// Mobicred/PayJustNow) right next to the real price — those need to be
+// excluded, or a cluster of identical installment amounts can outweigh and
+// bury the one correct number in the outlier-rejection step below.
+const INSTALLMENT_CONTEXT = /p\/?m\b|\/\s*mo\b|per\s+month|instal?ment|deposit|mobicred|payjustnow|credit\s*line|x\s*\d+\s*(months?|mo)\b/i;
+
 function extractPrices(text, currency) {
   if (!text) return [];
   const symbol = CURRENCY_SYMBOL[currency] || currency;
@@ -213,9 +219,20 @@ function extractPrices(text, currency) {
     'gi'
   );
   const matches = [...text.matchAll(pattern)];
-  return matches
-    .map(m => parseFloat((m[1] || m[2] || '').replace(/,/g, '')))
-    .filter(n => !isNaN(n) && n > 10); // filters stray small numbers (specs, ratings, etc.)
+  const prices = [];
+  for (const m of matches) {
+    const raw = m[1] || m[2];
+    if (!raw) continue;
+    const value = parseFloat(raw.replace(/,/g, ''));
+    if (isNaN(value) || value <= 10) continue; // filters stray small numbers (specs, ratings, etc.)
+
+    const start = Math.max(0, m.index - 25);
+    const end = Math.min(text.length, m.index + m[0].length + 25);
+    if (INSTALLMENT_CONTEXT.test(text.slice(start, end))) continue; // skip monthly payment mentions
+
+    prices.push(value);
+  }
+  return prices;
 }
 
 // eBay only really has US and UK marketplaces — for every other country, eBay's
@@ -250,13 +267,12 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
   }
 
   const data = await response.json();
+  const multiplier = CONDITION_MULTIPLIER[condition] ?? 0.85;
+
+  const answerPrices = extractPrices(data.answer, currency);
+
   const comps = [];
-  let allPrices = [];
-
-  if (data.answer) {
-    allPrices.push(...extractPrices(data.answer, currency));
-  }
-
+  let resultPrices = [];
   for (const r of (data.results || [])) {
     const prices = extractPrices(r.content || r.title || '', currency);
     if (prices.length > 0 && comps.length < 3) {
@@ -264,10 +280,36 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
       try { hostname = new URL(r.url).hostname.replace('www.', ''); } catch {}
       comps.push({ source: hostname, price: money(prices[0], currency) });
     }
-    allPrices.push(...prices);
+    resultPrices.push(...prices);
   }
 
-  if (!allPrices.length) {
+  // Prefer the synthesized answer as the anchor — it's one coherent statement
+  // about the item, not a grab-bag of numbers scraped from six different pages
+  // (financing terms, unrelated products, accessories, etc.). Only keep
+  // result-scraped prices that land reasonably close to that anchor.
+  if (answerPrices.length > 0) {
+    const anchor = median(answerPrices.slice().sort((a, b) => a - b));
+    const nearby = resultPrices.filter(p => p >= anchor * 0.6 && p <= anchor * 1.6);
+    const usable = [anchor, ...nearby];
+
+    const low = Math.min(...usable);
+    const high = Math.max(...usable);
+    const avg = usable.reduce((sum, p) => sum + p, 0) / usable.length;
+
+    return {
+      low: Math.round(low * multiplier),
+      high: Math.round(high * multiplier),
+      best_guess: Math.round(avg * multiplier),
+      currency,
+      lowConfidence: usable.length < 2,
+      reasoning: `Based on local pricing found via web search for ${countryName}, adjusted for "${condition}" condition.${data.answer ? ' ' + data.answer.slice(0, 200) : ''}`,
+      comps
+    };
+  }
+
+  // No usable price in the synthesized answer — fall back to the noisier
+  // pooled-and-filtered approach using whatever result pages turned up.
+  if (!resultPrices.length) {
     return {
       low: 0,
       high: 0,
@@ -279,11 +321,10 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
     };
   }
 
-  const sorted = allPrices.sort((a, b) => a - b);
+  const sorted = resultPrices.slice().sort((a, b) => a - b);
   const med = median(sorted);
   const usable = sorted.filter(p => p >= med * 0.4 && p <= med * 2.5);
   const prices = usable.length >= 2 ? usable : sorted;
-  const multiplier = CONDITION_MULTIPLIER[condition] ?? 0.85;
 
   const low = prices[0];
   const high = prices[prices.length - 1];
