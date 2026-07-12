@@ -39,7 +39,11 @@ async function getEbayToken() {
 }
 
 async function searchEbay(query, token) {
-  const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=25&sort=price`;
+  // No price sort here on purpose — sorting cheapest-first pulls in cases, screen
+  // protectors, and "for parts" junk before any real listings. Default relevance
+  // ranking weighs title match instead, which is what we actually want.
+  const cleanedQuery = `${query} -case -cover -skin -decal -"screen protector" -parts -"for parts" -lot -replacement -sticker`;
+  const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(cleanedQuery)}&limit=30`;
 
   const response = await fetch(url, {
     headers: {
@@ -64,6 +68,13 @@ const CONDITION_MULTIPLIER = {
   'Worn / damaged': 0.55
 };
 
+function median(sortedArr) {
+  const mid = Math.floor(sortedArr.length / 2);
+  return sortedArr.length % 2 !== 0
+    ? sortedArr[mid]
+    : (sortedArr[mid - 1] + sortedArr[mid]) / 2;
+}
+
 function computeValuation(listings, condition) {
   const multiplier = CONDITION_MULTIPLIER[condition] ?? 0.85;
 
@@ -77,12 +88,12 @@ function computeValuation(listings, condition) {
     };
   }
 
-  const prices = listings
+  const rawPrices = listings
     .map(l => parseFloat(l.price?.value))
     .filter(p => !isNaN(p) && p > 0)
     .sort((a, b) => a - b);
 
-  if (!prices.length) {
+  if (!rawPrices.length) {
     return {
       low: 0,
       high: 0,
@@ -92,24 +103,33 @@ function computeValuation(listings, condition) {
     };
   }
 
-  // trim the extreme 20% on each end so one wildly over/underpriced listing doesn't skew the range
-  const trim = Math.floor(prices.length * 0.2);
-  const usable = prices.length > 4 ? prices.slice(trim, prices.length - trim) : prices;
+  // Reject outliers relative to the median rather than trimming by list position —
+  // this handles a cluster of misfiled/junk listings (e.g. a page of $1 accessories)
+  // that would otherwise anchor the low end no matter how they're sorted.
+  const med = median(rawPrices);
+  const usable = rawPrices.filter(p => p >= med * 0.4 && p <= med * 2.5);
+  const prices = usable.length >= 3 ? usable : rawPrices;
 
-  const low = usable[0];
-  const high = usable[usable.length - 1];
-  const avg = usable.reduce((sum, p) => sum + p, 0) / usable.length;
+  const low = prices[0];
+  const high = prices[prices.length - 1];
+  const avg = prices.reduce((sum, p) => sum + p, 0) / prices.length;
 
-  const comps = listings.slice(0, 3).map(l => ({
-    source: `eBay listing — ${l.condition || 'condition unspecified'}`,
-    price: `$${parseFloat(l.price?.value).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-  }));
+  const comps = listings
+    .filter(l => {
+      const p = parseFloat(l.price?.value);
+      return !isNaN(p) && p >= med * 0.4 && p <= med * 2.5;
+    })
+    .slice(0, 3)
+    .map(l => ({
+      source: `eBay listing — ${l.condition || 'condition unspecified'}`,
+      price: `$${parseFloat(l.price?.value).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+    }));
 
   return {
     low: Math.round(low * multiplier),
     high: Math.round(high * multiplier),
     best_guess: Math.round(avg * multiplier),
-    reasoning: `Based on ${listings.length} current eBay listings for similar items, adjusted for "${condition}" condition. These reflect current asking prices, not confirmed sold prices.`,
+    reasoning: `Based on ${prices.length} comparable eBay listings (of ${listings.length} found) for similar items, adjusted for "${condition}" condition. These reflect current asking prices, not confirmed sold prices.`,
     comps
   };
 }
