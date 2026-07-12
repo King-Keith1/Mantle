@@ -108,12 +108,22 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
 
     if (r.comps && r.comps.length > 0) {
       compsSection.style.display = 'block';
+      document.getElementById('compsTitle').textContent = 'Comparable sales found';
       r.comps.forEach(c => {
         const div = document.createElement('div');
         div.className = 'comp-item';
         div.innerHTML = `<span class="comp-source">${c.source}</span><span class="comp-price">${c.price}</span>`;
         compsList.appendChild(div);
       });
+    } else if (r.best_guess > 0) {
+      // We have an estimate, just no individual listings solid enough to show —
+      // say so explicitly rather than letting the section silently vanish.
+      compsSection.style.display = 'block';
+      document.getElementById('compsTitle').textContent = 'Comparable sales';
+      const div = document.createElement('div');
+      div.className = 'comp-empty-note';
+      div.textContent = "No individual listings matched closely enough to show as evidence — this figure is a single synthesized estimate, treat it as rougher than usual.";
+      compsList.appendChild(div);
     } else {
       compsSection.style.display = 'none';
     }
