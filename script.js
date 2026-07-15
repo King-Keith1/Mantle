@@ -132,6 +132,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
 
     // stash this appraisal so "Save to Vault" has something to save
     currentAppraisal = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name: document.getElementById('itemName').value.trim(),
       category: document.getElementById('itemCategory').selectedOptions[0].textContent,
       value: r.best_guess
@@ -170,14 +171,28 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
 
     // item list, most recent first
     itemsWrap.innerHTML = [...vault].reverse().map(v => `
-      <div class="vault-item-row">
+      <div class="vault-item-row" data-id="${v.id}">
         <div>
           <div class="vault-item-name">${v.name}</div>
           <div class="vault-item-meta">${v.category}</div>
         </div>
-        <div class="vault-item-price">${money(v.value, sessionCurrency)}</div>
+        <div class="vault-item-right">
+          <div class="vault-item-price">${money(v.value, sessionCurrency)}</div>
+          <button class="vault-remove-btn" data-id="${v.id}" aria-label="Remove ${v.name}">✕</button>
+        </div>
       </div>
     `).join('');
+
+    itemsWrap.querySelectorAll('.vault-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const idx = vault.findIndex(v => v.id === id);
+        if (idx !== -1) {
+          vault.splice(idx, 1);
+          renderVault();
+        }
+      });
+    });
   }
 
   document.getElementById('saveBtn').addEventListener('click', () => {
