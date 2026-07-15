@@ -306,13 +306,16 @@ async function getLocalMarketAppraisal(item, condition, currency, countryName) {
     const low = Math.min(...usable);
     const high = Math.max(...usable);
     const avg = usable.reduce((sum, p) => sum + p, 0) / usable.length;
+    // A wide low/high spread is itself a sign the estimate can't be trusted,
+    // even when multiple sources technically agree with each other.
+    const spreadTooWide = low > 0 && (high / low) > 3;
 
     return {
       low: Math.round(low * multiplier),
       high: Math.round(high * multiplier),
       best_guess: Math.round(avg * multiplier),
       currency,
-      lowConfidence: usable.length < 2,
+      lowConfidence: usable.length < 2 || spreadTooWide,
       reasoning: `Based on local pricing found via web search for ${countryName}, adjusted for "${condition}" condition.${data.answer ? ' ' + data.answer.slice(0, 200) : ''}`,
       comps
     };
@@ -441,7 +444,9 @@ async function computeValuation(listings, condition, targetCurrency) {
 
   // Thin sample size means the estimate could easily be one mismatched listing —
   // surface that honestly instead of presenting it with full confidence.
-  const lowConfidence = prices.length < 3;
+  // A wide low/high spread is its own red flag too, even with enough listings.
+  const spreadTooWide = low > 0 && (high / low) > 3;
+  const lowConfidence = prices.length < 3 || spreadTooWide;
 
   return {
     low: Math.round(low * multiplier),
@@ -449,7 +454,7 @@ async function computeValuation(listings, condition, targetCurrency) {
     best_guess: Math.round(avg * multiplier),
     currency: targetCurrency,
     lowConfidence,
-    reasoning: lowConfidence
+    reasoning: prices.length < 3
       ? `Only ${prices.length} comparable eBay listing${prices.length === 1 ? '' : 's'} found for this item — treat this estimate as rough, not reliable.`
       : `Based on ${prices.length} comparable eBay listings (of ${listings.length} found) for similar items, adjusted for "${condition}" condition. These reflect current asking prices, not confirmed sold prices.`,
     comps
