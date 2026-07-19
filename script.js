@@ -142,18 +142,124 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
     saveBtn.textContent = 'Save to Vault';
   }
 
-  // --- VAULT ---
-  const vault = []; // in-memory only — no backend, resets on refresh
+  // --- SUPABASE SETUP ---
+  // These are PUBLIC keys — safe to expose in frontend code by design.
+  // Real access control lives in Postgres Row Level Security policies, not here.
+  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  function renderVault() {
-    const total = vault.reduce((sum, v) => sum + v.value, 0);
+  const authCard = document.getElementById('authCard');
+  const vaultCard = document.getElementById('vaultCard');
+  const authEmailInput = document.getElementById('authEmail');
+  const sendMagicLinkBtn = document.getElementById('sendMagicLinkBtn');
+  const authStatus = document.getElementById('authStatus');
+  const vaultUserEmail = document.getElementById('vaultUserEmail');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  let currentSession = null;
+
+  function setAuthStatus(text, type) {
+    authStatus.textContent = text;
+    authStatus.className = 'auth-status' + (type ? ' ' + type : '');
+  }
+
+  sendMagicLinkBtn.addEventListener('click', async () => {
+    const email = authEmailInput.value.trim();
+    if (!email || !email.includes('@')) {
+      setAuthStatus('Enter a valid email first.', 'error');
+      return;
+    }
+
+    // If there's an appraisal on screen when someone decides to sign in,
+    // remember it so it can be saved automatically once they're back and verified —
+    // otherwise the whole point of signing in mid-flow gets lost on the redirect.
+    if (currentAppraisal) {
+      localStorage.setItem('pendingVaultItem', JSON.stringify(currentAppraisal));
+    }
+
+    sendMagicLinkBtn.disabled = true;
+    setAuthStatus('Sending…');
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin }
+    });
+
+    sendMagicLinkBtn.disabled = false;
+
+    if (error) {
+      setAuthStatus("Couldn't send the link — try again.", 'error');
+      console.error(error);
+    } else {
+      setAuthStatus('Check your email for a sign-in link.', 'success');
+    }
+  });
+
+  signOutBtn.addEventListener('click', async () => {
+    await supabase.auth.signOut();
+  });
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    currentSession = session;
+    if (session) {
+      authCard.style.display = 'none';
+      vaultCard.style.display = 'block';
+      vaultUserEmail.textContent = session.user.email;
+      loadVaultFromDb();
+    } else {
+      authCard.style.display = 'block';
+      vaultCard.style.display = 'none';
+    }
+  });
+
+  async function loadVaultFromDb() {
+    const { data, error } = await supabase
+      .from('vault_items')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Failed to load vault:', error);
+      return;
+    }
+
+    renderVault(data || []);
+
+    // If we arrived here via a magic-link redirect with a pending item waiting
+    // to be saved, save it now that we have a real session.
+    const pending = localStorage.getItem('pendingVaultItem');
+    if (pending) {
+      localStorage.removeItem('pendingVaultItem');
+      try {
+        await saveItemToDb(JSON.parse(pending));
+      } catch (err) {
+        console.error('Failed to save pending item:', err);
+      }
+    }
+  }
+
+  async function saveItemToDb(item) {
+    const { error } = await supabase.from('vault_items').insert({
+      user_id: currentSession.user.id,
+      name: item.name,
+      category: item.category,
+      value: item.value,
+      currency: sessionCurrency
+    });
+    if (error) throw error;
+    await loadVaultFromDb();
+  }
+
+  function renderVault(items) {
+    const total = items.reduce((sum, v) => sum + Number(v.value), 0);
     document.getElementById('vaultTotal').textContent = money(total, sessionCurrency);
-    document.getElementById('vaultCount').textContent = vault.length;
+    document.getElementById('vaultCount').textContent = items.length;
 
     const catsWrap = document.getElementById('vaultCategories');
     const itemsWrap = document.getElementById('vaultItems');
 
-    if (vault.length === 0) {
+    if (items.length === 0) {
       catsWrap.style.display = 'none';
       itemsWrap.innerHTML = '<div class="vault-empty" id="vaultEmpty">Nothing in your Vault yet.<br>Get an appraisal above, then save it — this is where your collection adds up.</div>';
       return;
@@ -161,7 +267,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
 
     // category breakdown
     const catTotals = {};
-    vault.forEach(v => { catTotals[v.category] = (catTotals[v.category] || 0) + v.value; });
+    items.forEach(v => { catTotals[v.category] = (catTotals[v.category] || 0) + Number(v.value); });
     const topCats = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).slice(0, 4);
 
     catsWrap.style.display = 'flex';
@@ -170,42 +276,56 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
     ).join('');
 
     // item list, most recent first
-    itemsWrap.innerHTML = [...vault].reverse().map(v => `
+    itemsWrap.innerHTML = [...items].reverse().map(v => `
       <div class="vault-item-row" data-id="${v.id}">
         <div>
           <div class="vault-item-name">${v.name}</div>
           <div class="vault-item-meta">${v.category}</div>
         </div>
         <div class="vault-item-right">
-          <div class="vault-item-price">${money(v.value, sessionCurrency)}</div>
+          <div class="vault-item-price">${money(Number(v.value), sessionCurrency)}</div>
           <button class="vault-remove-btn" data-id="${v.id}" aria-label="Remove ${v.name}">✕</button>
         </div>
       </div>
     `).join('');
 
     itemsWrap.querySelectorAll('.vault-remove-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
-        const idx = vault.findIndex(v => v.id === id);
-        if (idx !== -1) {
-          vault.splice(idx, 1);
-          renderVault();
+        const { error } = await supabase.from('vault_items').delete().eq('id', id);
+        if (error) {
+          console.error('Failed to remove item:', error);
+          return;
         }
+        loadVaultFromDb();
       });
     });
   }
 
-  document.getElementById('saveBtn').addEventListener('click', () => {
+  document.getElementById('saveBtn').addEventListener('click', async () => {
     if (!currentAppraisal) return;
-    vault.push(currentAppraisal);
-    renderVault();
-
     const saveBtn = document.getElementById('saveBtn');
-    saveBtn.textContent = 'Saved ✓';
-    saveBtn.disabled = true;
 
-    // gentle scroll to the vault so the growth is felt, not just implied
-    document.querySelector('.vault-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!currentSession) {
+      // Not signed in — scroll to the sign-in prompt instead of silently failing.
+      document.querySelector('.vault-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      authEmailInput.focus();
+      setAuthStatus('Sign in to save this item — it\'ll be added automatically once you do.');
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    try {
+      await saveItemToDb(currentAppraisal);
+      saveBtn.textContent = 'Saved ✓';
+      document.querySelector('.vault-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      console.error('Failed to save:', err);
+      saveBtn.textContent = 'Save to Vault';
+      saveBtn.disabled = false;
+    }
   });
 
   appraiseBtn.addEventListener('click', getAppraisal);
