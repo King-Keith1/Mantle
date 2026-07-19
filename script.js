@@ -143,9 +143,11 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   }
 
   // --- SUPABASE SETUP ---
-  const SUPABASE_URL = 'https://fkudalwfgapwkaucfobg.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_Ou5xiZ_EEwyWs-fzD3F_5Q_oFkfWn7F';
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // These are PUBLIC keys — safe to expose in frontend code by design.
+  // Real access control lives in Postgres Row Level Security policies, not here.
+  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const authCard = document.getElementById('authCard');
   const vaultCard = document.getElementById('vaultCard');
@@ -179,7 +181,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
     sendMagicLinkBtn.disabled = true;
     setAuthStatus('Sending…');
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabaseClient.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: window.location.origin }
     });
@@ -195,10 +197,10 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   });
 
   signOutBtn.addEventListener('click', async () => {
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
   });
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
     currentSession = session;
     if (session) {
       authCard.style.display = 'none';
@@ -212,7 +214,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   });
 
   async function loadVaultFromDb() {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('vault_items')
       .select('*')
       .order('created_at', { ascending: true });
@@ -238,7 +240,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   }
 
   async function saveItemToDb(item) {
-    const { error } = await supabase.from('vault_items').insert({
+    const { error } = await supabaseClient.from('vault_items').insert({
       user_id: currentSession.user.id,
       name: item.name,
       category: item.category,
@@ -290,7 +292,7 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
     itemsWrap.querySelectorAll('.vault-remove-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
-        const { error } = await supabase.from('vault_items').delete().eq('id', id);
+        const { error } = await supabaseClient.from('vault_items').delete().eq('id', id);
         if (error) {
           console.error('Failed to remove item:', error);
           return;
