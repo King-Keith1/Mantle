@@ -145,8 +145,8 @@ document.getElementById('dateTag').textContent = new Date().toLocaleDateString('
   // --- SUPABASE SETUP ---
   // These are PUBLIC keys — safe to expose in frontend code by design.
   // Real access control lives in Postgres Row Level Security policies, not here.
-  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const SUPABASE_URL = 'https://fkudalwfgapwkaucfobg.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_Ou5xiZ_EEwyWs-fzD3F_5Q_oFkfWn7F';
   const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const authCard = document.getElementById('authCard');
