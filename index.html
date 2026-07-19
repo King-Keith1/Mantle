@@ -6,13 +6,14 @@
 <title>Worth — What's it actually worth?</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="wrap">
   <div class="eyebrow">Appraisal Demo · Prototype</div>
   <h1>What's it <em>actually</em> worth?</h1>
-  <p class="sub">Describe what you've got. We'll research live comps and stamp a value — no listing, no account, just the number.</p>
+  <p class="sub">Describe what you've got. We'll research live comps and stamp a value — sign in only if you want to keep it.</p>
 
   <div class="ticket">
     <div class="ticket-top">
@@ -92,7 +93,23 @@
       <div class="vault-eyebrow">Your Vault · Private</div>
     </div>
 
-    <div class="vault-card">
+    <!-- Logged OUT: sign-in prompt -->
+    <div class="vault-card" id="authCard">
+      <p class="auth-copy">Sign in to save items and pick up your collection later — no password, just a link in your email.</p>
+      <div class="auth-row">
+        <input type="email" id="authEmail" placeholder="you@example.com" />
+        <button class="save-btn auth-btn" id="sendMagicLinkBtn">Send link</button>
+      </div>
+      <div class="auth-status" id="authStatus"></div>
+    </div>
+
+    <!-- Logged IN: real vault -->
+    <div class="vault-card" id="vaultCard" style="display:none;">
+      <div class="vault-signed-in-row">
+        <span class="vault-signed-in-email" id="vaultUserEmail"></span>
+        <button class="vault-signout-btn" id="signOutBtn">Sign out</button>
+      </div>
+
       <div class="vault-total-row">
         <div>
           <div class="vault-total-label">Estimated collection value</div>
@@ -111,10 +128,10 @@
       </div>
     </div>
 
-    <div class="vault-note">Stored only in this browser tab for this demo — refreshing clears it.<br>In the real app this would be private to you by default, never public.</div>
+    <div class="vault-note">Private to your account — never shown to anyone else.</div>
   </div>
 </div>
 
-<script src="script.js?v=6"></script>
+<script src="script.js?v=7"></script>
 </body>
 </html>
